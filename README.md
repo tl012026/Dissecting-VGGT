@@ -52,42 +52,44 @@ The **VGGT-1B backbone is frozen**, and tokens from layers 4/11/17/23 are cached
 **Statistics.** 95% CIs from scene-level bootstrap (15 scenes). An effect counts only if its CI excludes 0 and it exceeds the seed-to-seed spread.
 
 ## 4. Results (TBD)
-
+ 
 **Table 1. Global metrics and cost**
-
+ 
 | Head | AbsRel ↓ | δ1 ↑ | Acc ↓ | Comp ↓ | Params | Train mem (GB) |
 |---|---|---|---|---|---|---|
-| Ref | | | | | | — |
+| Ref | 0.0171 | 0.9838 | 0.0067 | 0.0108 | 32.65M | — |
 | H1 | | | | | | |
 | C | | | | | | |
 | H2 | | | | | | |
 | H3 | | | | | | |
 | H4 | | | | | | |
-
+ 
 **Table 2. Where the error is (AbsRel by region, flying-point rate)**
-
+ 
 | Head | All | Band | Interior | Far | Flying (band) ↓ |
 |---|---|---|---|---|---|
-| Ref | | | | | |
+| Ref | 0.0171 | 0.0588 | 0.0080 | 0.0285 | 0.191 |
 | H1 | | | | | |
 | C | | | | | |
 | H2 | | | | | |
 | H3 | | | | | |
 | H4 | | | | | |
-
+ 
 **Table 3. Coarse vs. fine error (relative MSE, ×10⁻³)**
-
+ 
 | Head | Total | Coarse (patch-level) | Fine (within-patch) |
 |---|---|---|---|
-| Ref | | | |
+| Ref | 11.90 | 2.12 (18%) | 9.78 (82%) |
 | H1 | | | |
 | C | | | |
 | H2 | | | |
 | H3 | | | |
 | H4 | | | |
-
-**Table 4. Attribution: error reduction per added component (mean [95% CI])**
-
+ 
+Ref: official VGGT-1B depth head, 15 test scenes, 300 frames. Band = 16.7% of valid pixels.
+ 
+**Table 4. Attribution: error reduction per added component (mean [95% CI]); needs trained heads H1–H4**
+ 
 | Step | Band AbsRel | Interior AbsRel | Coarse MSE | Fine MSE | Flying | Δ Train mem |
 |---|---|---|---|---|---|---|
 | C − H1 (nonlinearity) | | | | | | |
