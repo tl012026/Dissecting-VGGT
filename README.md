@@ -34,6 +34,19 @@ The **VGGT-1B backbone is frozen**, and tokens from layers 4/11/17/23 are cached
 | H4 | layers 4/11/17/23 | official DPT architecture, re-initialized | progressive high-res upsampling |
 | Ref | — | official pretrained DPT head (no training) | protocol check |
 
+**DPT head anatomy** (VGGT depth head, 518×392 input = 28×37 tokens; measured on one frame, fp32):
+
+| Stage | Operation | Resolution | Params |
+|---|---|---|---|
+| Read-out | LayerNorm + 1×1 conv per tapped layer (4/11/17/23) | 28×37 | 5.8M |
+| Pyramid | layer 4 ×4 (transposed conv, k=s=4), layer 11 ×2, layer 17 ×1, layer 23 ↓2 (3×3, stride 2) | 112×148 … 14×19 | 11.5M |
+| Fusion | 3×3 conv to 256 ch, then 4 RefineNet blocks top-down (residual 3×3 convs, bilinear ×2) | 14×19 → 224×296 | 15.0M |
+| Output | 3×3 conv (128 ch) → bilinear to full res → 3×3 conv (32 ch) → 1×1 → depth, conf | 224×296 → 392×518 | 0.3M |
+
+Total 32.7M params, ≈460 MB of training activations per frame. **76% of the activations sit at ≥112×148**, in stages that hold only ~16% of the params.
+
+Optional variant **H4-lite**: DPT truncated after the 112×148 fusion stage, bilinear to full res, same output convs. It splits the H4 − H3 step into multi-scale fusion (H4-lite − H3) and high-res convs (H4 − H4-lite, the part VGGT-Ω removed).
+
 | Comparison | What it shows |
 |---|---|
 | C − H1 | gain from nonlinear decoding of the last layer |
@@ -52,9 +65,9 @@ The **VGGT-1B backbone is frozen**, and tokens from layers 4/11/17/23 are cached
 **Statistics.** 95% CIs from scene-level bootstrap (15 scenes). An effect counts only if its CI excludes 0 and it exceeds the seed-to-seed spread.
 
 ## 4. Results (TBD)
- 
+
 **Table 1. Global metrics and cost**
- 
+
 | Head | AbsRel ↓ | δ1 ↑ | Acc ↓ | Comp ↓ | Params | Train mem (GB) |
 |---|---|---|---|---|---|---|
 | Ref | 0.0171 | 0.9838 | 0.0067 | 0.0108 | 32.65M | — |
@@ -63,9 +76,9 @@ The **VGGT-1B backbone is frozen**, and tokens from layers 4/11/17/23 are cached
 | H2 | | | | | | |
 | H3 | | | | | | |
 | H4 | | | | | | |
- 
+
 **Table 2. Where the error is (AbsRel by region, flying-point rate)**
- 
+
 | Head | All | Band | Interior | Far | Flying (band) ↓ |
 |---|---|---|---|---|---|
 | Ref | 0.0171 | 0.0588 | 0.0080 | 0.0285 | 0.191 |
@@ -74,9 +87,9 @@ The **VGGT-1B backbone is frozen**, and tokens from layers 4/11/17/23 are cached
 | H2 | | | | | |
 | H3 | | | | | |
 | H4 | | | | | |
- 
+
 **Table 3. Coarse vs. fine error (relative MSE, ×10⁻³)**
- 
+
 | Head | Total | Coarse (patch-level) | Fine (within-patch) |
 |---|---|---|---|
 | Ref | 11.90 | 2.12 (18%) | 9.78 (82%) |
@@ -85,11 +98,11 @@ The **VGGT-1B backbone is frozen**, and tokens from layers 4/11/17/23 are cached
 | H2 | | | |
 | H3 | | | |
 | H4 | | | |
- 
+
 Ref: official VGGT-1B depth head, 15 test scenes, 300 frames. Band = 16.7% of valid pixels.
- 
+
 **Table 4. Attribution: error reduction per added component (mean [95% CI]); needs trained heads H1–H4**
- 
+
 | Step | Band AbsRel | Interior AbsRel | Coarse MSE | Fine MSE | Flying | Δ Train mem |
 |---|---|---|---|---|---|---|
 | C − H1 (nonlinearity) | | | | | | |
