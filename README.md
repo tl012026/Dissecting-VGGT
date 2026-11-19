@@ -1,0 +1,96 @@
+# What does VGGT's dense head actually compute?
+
+## 1. Core question
+
+3D foundation models are often described as a backbone that holds the geometry plus heads that "simply act as format converters". VGGT's DPT head reads only backbone tokens (layers 4, 11, 17, 23), never the image, so it cannot add new information. The open question is **how heavy that conversion is**:
+
+> How much of VGGT's point-cloud quality comes from the simplest possible readout (a linear map of last-layer tokens)? Which extra computation does the rest need: nonlinear decoding, intermediate-layer fusion, spatial context, or high-resolution upsampling? Where in the point cloud does each one matter?
+
+## 2. Data
+
+**Hypersim** only (synthetic indoor scenes with exact dense depth).
+
+| | |
+|---|---|
+| Scene filter | "Strict-standard" camera: 1024×768, f = 886.81 px, square pixels, centered principal point (284 of 482 scenes) |
+| Camera / frames | `cam_00` only; scenes with all 100 frames publicly released |
+| Split | Official scene split (`metadata_images_split_scene_v1.csv`), sampled with seed 0: **25 train scenes** (from `train`) for training heads, **15 test scenes** (from `test`) for evaluation only |
+| Files per frame | `tonemap.jpg` (RGB), `depth_meters.hdf5` (depth) |
+| Preprocessing | Ray distance → planar depth at native resolution; resize to 518×392 (VGGT `crop` mode) with **nearest neighbour** for depth; intrinsics scaled per axis |
+| Eval groups | Per test scene, 5 non-overlapping groups of 4 frames (stride 5) → **75 groups, 300 frames**, fixed in `groups.json` |
+
+Hypersim is part of VGGT's training data, so absolute numbers are optimistic. All heads share the same frozen backbone, so comparisons between heads are unaffected.
+
+## 3. Experiment design
+
+The **VGGT-1B backbone is frozen**, and tokens from layers 4/11/17/23 are cached. Five depth heads are trained on the cached tokens with identical loss (VGGT's confidence-weighted depth loss with gradient term), optimizer, steps, and 2 seeds each. Each step up the ladder adds exactly one component.
+
+| Head | Input | Architecture | Adds |
+|---|---|---|---|
+| H1 | layer 23 | per-token linear → 14×14 pixel shuffle | baseline readout |
+| C | layer 23 | per-token 2-layer MLP (hidden 2048) → pixel shuffle | nonlinear decoding only (capacity control) |
+| H2 | layers 4/11/17/23 | per-token linear → pixel shuffle | intermediate layers |
+| H3 | layers 4/11/17/23 | 2 × 3×3 residual conv blocks at token resolution → linear → pixel shuffle | spatial context |
+| H4 | layers 4/11/17/23 | official DPT architecture, re-initialized | progressive high-res upsampling |
+| Ref | — | official pretrained DPT head (no training) | protocol check |
+
+| Comparison | What it shows |
+|---|---|
+| C − H1 | gain from nonlinear decoding of the last layer |
+| H2 − H1 | information in intermediate layers that the last layer lacks |
+| H3 − H2 | value of neighbouring tokens (spatial context) |
+| H4 − H3 | value of high-res convolutions (what VGGT-Ω removed) |
+| H4 vs Ref | sanity gate: H4 must be within 10% AbsRel of Ref, otherwise training is insufficient |
+
+**Metrics** (`metrics.py`, per frame, median scale alignment, GT intrinsics):
+
+- Region-wise AbsRel and 3D point error. Regions: **boundary band** (GT depth discontinuities, dilated 3 px), **interior**, **far** (top 20% depth).
+- **Flying-point rate** in the band: share of points with 3D error > 5% of depth.
+- **Coarse/fine split** of relative MSE: 14×14 patch means vs. within-patch residual. The split is exact: total = coarse + fine.
+- Chamfer accuracy and completeness (normalized by median depth); δ1.
+
+**Statistics.** 95% CIs from scene-level bootstrap (15 scenes). An effect counts only if its CI excludes 0 and it exceeds the seed-to-seed spread.
+
+## 4. Results (TBD)
+
+**Table 1. Global metrics and cost**
+
+| Head | AbsRel ↓ | δ1 ↑ | Acc ↓ | Comp ↓ | Params | Train mem (GB) |
+|---|---|---|---|---|---|---|
+| Ref | | | | | | — |
+| H1 | | | | | | |
+| C | | | | | | |
+| H2 | | | | | | |
+| H3 | | | | | | |
+| H4 | | | | | | |
+
+**Table 2. Where the error is (AbsRel by region, flying-point rate)**
+
+| Head | All | Band | Interior | Far | Flying (band) ↓ |
+|---|---|---|---|---|---|
+| Ref | | | | | |
+| H1 | | | | | |
+| C | | | | | |
+| H2 | | | | | |
+| H3 | | | | | |
+| H4 | | | | | |
+
+**Table 3. Coarse vs. fine error (relative MSE, ×10⁻³)**
+
+| Head | Total | Coarse (patch-level) | Fine (within-patch) |
+|---|---|---|---|
+| Ref | | | |
+| H1 | | | |
+| C | | | |
+| H2 | | | |
+| H3 | | | |
+| H4 | | | |
+
+**Table 4. Attribution: error reduction per added component (mean [95% CI])**
+
+| Step | Band AbsRel | Interior AbsRel | Coarse MSE | Fine MSE | Flying | Δ Train mem |
+|---|---|---|---|---|---|---|
+| C − H1 (nonlinearity) | | | | | | |
+| H2 − H1 (layers) | | | | | | |
+| H3 − H2 (context) | | | | | | |
+| H4 − H3 (high-res) | | | | | | |
